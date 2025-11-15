@@ -5,25 +5,39 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 
 dotenv.config();
-// import { shuffle } from 'lodash'; <--- ❌ lodash 제거
+
+const OC_USER_ID = process.env.LAW_GOV_OC;
+
 
 const app = express();
 app.use(express.json());
 
 
 // Firebase Admin 초기화 및 환경 변수 처리 강화 (이전과 동일)
+// Firebase Admin 초기화 및 환경 변수 처리 강화
 let db = null;
 let initializationError = null;
 
+// 🔽 1. 변수를 try 블록 밖(상위 스코프)에 let으로 선언 🔽
+let serviceAccountKey = null; 
+
 try {
-    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
-        ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY.replace(/\\n/g, '\n'))
+    // 🔽 2. 선언된 변수에 값을 할당 🔽
+    serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
+        ? JSON.parse(
+            process.env.FIREBASE_SERVICE_ACCOUNT_KEY
+            .trim() // 앞뒤 공백 제거
+            // 현재 어떤 형식으로 저장했는지에 따라 이 라인은 필요할 수 있습니다.
+            // 마지막으로 실패한 JSON 에러를 고려하여 제거하지 않고 유지합니다.
+            // .replace(/\\n/g, '\n') 
+          )
         : null;
 
     if (!serviceAccountKey) {
         throw new Error("FIREBASE_SERVICE_ACCOUNT_KEY 환경 변수가 설정되지 않았습니다.");
     }
-
+    
+    // 이 시점에서 serviceAccountKey는 정의되었으며, 아래 코드에서 정상적으로 사용 가능
     const firebaseApp = initializeApp({
         credential: cert(serviceAccountKey)
     });
@@ -32,10 +46,13 @@ try {
     console.log("Firebase Admin SDK가 성공적으로 초기화되었습니다.");
 
 } catch (error) {
+    // catch 블록에서도 serviceAccountKey를 참조하려 한다면, 이제 ReferenceError가 발생하지 않습니다.
     console.error("⚠️ Firebase Admin SDK 초기화 오류:", error.message);
     db = null;
-    initializationError = `Firebase Admin 초기화 실패: ${error.message}`;
+    initializationError = `Firebase Admin 초기화 실패 give up: ${error.message}`;
 }
+
+
 
 
 // --- 미들웨어: DB 유효성 검사 (이전과 동일) ---
@@ -62,47 +79,40 @@ const VALID_LAW_IDS = [
   { lawId: "001248", lawName: "주택임대차보호법" },
   { lawId: "001206", lawName: "가사소송법" },
 ];
+const LAW_API_BASE_URL = "https://www.law.go.kr/DRF";
+const LAW_ARTICLE_URL = `${LAW_API_BASE_URL}/lawService.do`;
 
 /* --------------------------
     2) 법령 조문 랜덤 추출 함수
 ---------------------------*/
-async function fetchRandomArticle(law) {
+ 
+async function fetchLawArticles(lawId) {
+  if (!OC_USER_ID) {
+    console.error("❌ fetchLawArticles: LAW_QUIZ_OC_ID가 로드되지 않았습니다.");
+    return [];
+  }
+
   try {
-    // Node.js 기본 fetch 사용
-    const url = `https://www.law.go.kr/DRF/lawService.do?OC=${process.env.LAW_GOV_OC}&target=eflaw&ID=${law.lawId}&type=json`;
-    const res = await fetch(url);
-    
-    // HTTP 오류 처리
-    if (!res.ok) {
-        console.error(`Law.go.kr API 오류: ${res.status} ${res.statusText}`);
-        return null;
-    }
+    const params = { OC: OC_USER_ID, type: 'JSON', target: 'eflaw', 'ID': lawId };
+    const response = await axios.get(LAW_API_BASE_URL, { params });
+    const lawData = response.data;
+    const lawInfo = lawData['법령'];
+    if (!lawInfo?.조문?.조문단위) return [];
 
-    const json = await res.json();
-    
-    // 데이터 구조가 비어있거나 예상과 다를 경우 처리
-    const articles = json.JEYO_LIST || json.JEYO;
-    if (!articles) return null;
+    const joData = lawInfo['조문']['조문단위'];
+    const articleList = Array.isArray(joData) ? joData : [joData].filter(j => j);
 
-    const arr = Array.isArray(articles) ? articles : [articles];
-
-    // 배열이 비어있는 경우 체크
-    if (arr.length === 0) return null;
-
-    const pick = arr[Math.floor(Math.random() * arr.length)];
-
-    return {
-      lawId: law.lawId,
-      lawName: law.lawName,
-      num: pick.ArticleNo,
-      // Paragraph가 배열일 수도 있으므로, 안전하게 처리
-      content: Array.isArray(pick.Paragraph) ? JSON.stringify(pick.Paragraph) : pick.Paragraph ? pick.Paragraph : ""
-    };
-  } catch (e) {
-    console.error("조문 fetch 오류:", e);
-    return null;
+    return articleList.map(jo => ({
+      num: jo['조문번호'],
+      content: jo['조문내용'],
+      lawName: lawInfo['기본정보']['법령명_한글']
+    }));
+  } catch (err) {
+    console.error(`🚨 fetchLawArticles 오류 (ID: ${lawId}):`, err.message);
+    return [];
   }
 }
+
 
 /* --------------------------
     3) 공식 Gemini SDK 기반 퀴즈 생성기
@@ -142,11 +152,12 @@ async function generateQuiz(article) {
       model: MODEL,
       input: prompt,
       config: {
+        systemInstruction: prompt,
         responseMimeType: "application/json",
         responseSchema: {
           type: "OBJECT",
           properties: {
-            id: { type: "NUMBER" },
+            id: { type: "INTEGER" },
             category: { type: "STRING" },
             question: { type: "STRING" },
             options: {
@@ -156,12 +167,13 @@ async function generateQuiz(article) {
                 properties: {
                   text: { type: "STRING" },
                   is_correct: { type: "BOOLEAN" }
+                 },
+                 required: ["text", "is_correct"]
                 }
-              }
             },
             answer: { type: "STRING" },
             explanation: { type: "STRING" },
-            timer_sec: { type: "NUMBER" }
+            timer_sec: { type: "INTEGER" }
           },
           required: ["id", "category", "question", "options", "answer", "explanation", "timer_sec"]
         }
@@ -185,9 +197,6 @@ async function generateQuiz(article) {
 // 마지막 퀴즈 세트 가져오기
 app.get("/api/lawquizzes/latest", async(req,res)=>{
   try{
-    // Firestore 경로는 /artifacts/{appId}/public/data/law_quizzes/{docId}가 되어야 합니다.
-    // 하지만 현재 제공된 firebase-admin.js는 이를 고려하지 않으므로, 
-    // 임시로 기본 경로인 'law_quizzes'를 사용합니다.
     const snapshot = await db.collection("law_quizzes").orderBy("createdAt","desc").limit(1).get();
     if(snapshot.empty){ return res.json([]); }
     const doc = snapshot.docs[0].data();
@@ -265,5 +274,5 @@ export default app;
 // 서버를 시작하고 특정 포트에서 요청을 수신합니다.
 //app.listen(PORT, () => {
     // 서버가 성공적으로 시작되면 콘솔에 메시지를 출력합니다.
-    //console.log(`✅ 서버가 http://localhost:${PORT} 에서 실행 중입니다.`);//
-
+   // console.log(`✅ 서버가 http://localhost:${PORT} 에서 실행 중입니다.`);//
+//
