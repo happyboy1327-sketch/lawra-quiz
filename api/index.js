@@ -1,22 +1,55 @@
-// Vercel 환경에서는 dotenv.config()가 필요하지 않지만,
-// 로컬 개발 환경과의 호환성을 위해 유지합니다.
-import 'dotenv/config';
-import express from "express";
-import cors from "cors";
-// 'node-fetch'는 Node.js 최신 버전에서 기본 'fetch' 함수가 내장되어 있으므로
-// Vercel 환경에서 충돌을 피하기 위해 제거하거나, 확실하게 Node.js 기본 fetch를 사용하도록 합니다.
-// 여기서는 import from "node-fetch"를 제거하고 기본 fetch를 사용하도록 유지합니다.
-import { GoogleGenAI } from "@google/genai";
-import { db } from "../firebase-admin.js"; // firebase-admin.js 경로 수정 (루트 폴더 기준)
+import express from 'express';
+import { initializeApp, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { GoogleGenAI } from '@google/genai';
+import dotenv from 'dotenv';
+
+dotenv.config();
+// import { shuffle } from 'lodash'; <--- ❌ lodash 제거
 
 const app = express();
-app.use(cors());
 app.use(express.json());
 
-// Vercel에서는 정적 파일 서비스가 아닌, 프론트엔드 파일(index.html)을 
-// public 폴더에서 직접 제공해야 하므로 이 라인은 Vercel의 빌드 설정으로 대체합니다.
-// app.use(express.static('public')); 
 
+// Firebase Admin 초기화 및 환경 변수 처리 강화 (이전과 동일)
+let db = null;
+let initializationError = null;
+
+try {
+    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
+        ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY.replace(/\\n/g, '\n'))
+        : null;
+
+    if (!serviceAccountKey) {
+        throw new Error("FIREBASE_SERVICE_ACCOUNT_KEY 환경 변수가 설정되지 않았습니다.");
+    }
+
+    const firebaseApp = initializeApp({
+        credential: cert(serviceAccountKey)
+    });
+
+    db = getFirestore(firebaseApp);
+    console.log("Firebase Admin SDK가 성공적으로 초기화되었습니다.");
+
+} catch (error) {
+    console.error("⚠️ Firebase Admin SDK 초기화 오류:", error.message);
+    db = null;
+    initializationError = `Firebase Admin 초기화 실패: ${error.message}`;
+}
+
+
+// --- 미들웨어: DB 유효성 검사 (이전과 동일) ---
+const checkDbConnection = (req, res, next) => {
+    if (!db) {
+        return res.status(500).json({
+            error: "서버 설정 오류",
+            message: initializationError || "데이터베이스 연결에 실패했습니다. 서버 로그를 확인하십시오."
+        });
+    }
+    next();
+};
+
+app.use(checkDbConnection);
 /* --------------------------
     1) 랜덤 선택 가능한 법령 목록
 ---------------------------*/
