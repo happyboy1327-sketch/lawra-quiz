@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>법률 퀴즈</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+body { font-family: 'Inter', 'Noto Sans KR', Arial, sans-serif; margin:0; padding:0; }
+.modal-overlay { background-color: rgba(0,0,0,0.5); transition: opacity 0.3s ease-in-out; }
+</style>
+<script>
+tailwind.config = {
+  theme: { extend: { colors: { 'primary':'#1976d2','primary-dark':'#1565c0','correct':'#4caf50','wrong':'#f44336','bg-light':'#f0f2f5' } } }
+}
+</script>
+</head>
+<body class="bg-bg-light min-h-screen p-4 flex justify-center items-start">
+
+<div id="quiz-container" class="max-w-xl w-full mx-auto mt-5 p-6 bg-white rounded-xl shadow-2xl relative border border-gray-100">
+  <div class="flex justify-between items-center mb-4 relative h-10">
+    <button id="review-button" class="px-3 py-1 text-sm font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg shadow-md">오답 복습</button>
+    <div class="flex flex-col items-end space-y-1">
+      <div id="timer" class="text-xl font-bold text-gray-700">0</div>
+      <div id="wrong-count" class="text-sm font-semibold text-wrong">오답: 0</div>
+    </div>
+  </div>
+
+  <div id="question-text" class="mt-8 mb-6 text-lg font-medium text-gray-800 leading-relaxed min-h-[4rem]">
+    {질문이 여기에 표시됩니다.}
+  </div>
+
+  <div id="options-container" class="space-y-3"></div>
+
+  <div id="explanation-area" class="mt-4 p-4 text-sm bg-blue-50 border-l-4 border-primary rounded-lg text-gray-700 hidden transition-all duration-300"></div>
+
+  <button id="next-button" class="w-full mt-6 py-3 border-none rounded-lg bg-primary text-white text-base font-semibold cursor-pointer hover:bg-primary-dark transition duration-200 shadow-lg hover:shadow-xl">다음 문제</button>
+
+  <button id="new-quiz-set-btn" class="w-full mt-3 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition duration-200">
+    새 퀴즈 세트 생성
+  </button>
+
+</div>
+
+<div id="review-modal" class="fixed inset-0 flex items-center justify-center modal-overlay opacity-0 pointer-events-none z-50 transition duration-300">
+  <div class="bg-white rounded-xl w-11/12 max-w-2xl max-h-[80vh] overflow-y-auto p-6 shadow-2xl transform scale-95 transition-transform duration-300">
+    <h2 class="text-xl font-bold mb-4 border-b pb-2 text-gray-800">오답 복습 목록</h2>
+    <div id="review-list" class="space-y-3"></div>
+    <button id="review-close" class="mt-6 w-full py-2 bg-wrong text-white font-semibold rounded-lg hover:bg-red-700 shadow-md">닫기</button>
+  </div>
+</div>
+
+<script type="module">
+let allQuizzes=[], currentQuizIndex=0, correctCount=0, wrongQuizzes=[];
+const questionTextEl=document.getElementById("question-text");
+const optionsContainerEl=document.getElementById("options-container");
+const explanationAreaEl=document.getElementById("explanation-area");
+const nextButtonEl=document.getElementById("next-button");
+const newQuizSetBtnEl = document.getElementById("new-quiz-set-btn");
+const reviewButtonEl=document.getElementById("review-button");
+const reviewModalEl=document.getElementById("review-modal");
+const reviewListEl=document.getElementById("review-list");
+const reviewCloseEl=document.getElementById("review-close");
+const timerEl=document.getElementById("timer");
+const wrongCountEl=document.getElementById("wrong-count");
+let timerInterval;
+
+// 로컬 스토리지 복원
+wrongQuizzes=JSON.parse(localStorage.getItem("wrongQuizzes")||"[]");
+
+function showModal(){ reviewModalEl.classList.remove('opacity-0','pointer-events-none'); reviewModalEl.children[0].classList.remove('scale-95'); reviewModalEl.children[0].classList.add('scale-100'); }
+function hideModal(){ reviewModalEl.classList.add('opacity-0','pointer-events-none'); reviewModalEl.children[0].classList.remove('scale-100'); reviewModalEl.children[0].classList.add('scale-95'); }
+
+// Firestore에서 퀴즈 가져오기
+async function loadQuizzes(){
+  try{
+    // 🌟 수정: 루트 상대 경로(/api/...)를 문서 상대 경로(api/...)로 변경하여 파싱 오류 해결
+    const res=await fetch("api/lawquizzes/latest");
+    
+    if(!res.ok){
+      // 서버 오류 메시지 표시
+      const err = await res.json();
+      throw new Error(err.error || `퀴즈 로드 실패 (Status: ${res.status})`);
+    }
+
+    allQuizzes=await res.json();
+    if (allQuizzes.length === 0) {
+        questionTextEl.innerHTML = `퀴즈 데이터가 없습니다. 아래 버튼을 눌러 새 퀴즈 세트를 생성해주세요.`;
+        nextButtonEl.classList.add("hidden");
+        return;
+    }
+    
+    currentQuizIndex=0;
+    correctCount=0;
+    showQuiz();
+    updateWrongCount();
+    nextButtonEl.classList.remove("hidden");
+
+  }catch(err){ 
+    console.error(err); 
+    questionTextEl.innerHTML = `⚠️ 퀴즈 로드 중 오류 발생: ${err.message}`;
+    nextButtonEl.classList.add("hidden");
+    newQuizSetBtnEl.classList.remove("hidden");
+  }
+}
+
+function showQuiz(){
+  clearInterval(timerInterval);
+  timerEl.classList.remove("text-wrong"); // 타이머 색상 초기화
+  const quiz=allQuizzes[currentQuizIndex];
+  if(!quiz){ console.warn("퀴즈 없음"); return; }
+
+  questionTextEl.innerHTML=`<span class="text-sm font-light text-gray-500 mr-2">[${currentQuizIndex+1}/${allQuizzes.length}]</span>
+    <span class="text-primary font-bold mr-2">(${quiz.article.lawName})</span>${quiz.question}`;
+
+  optionsContainerEl.innerHTML="";
+  explanationAreaEl.classList.add("hidden"); explanationAreaEl.textContent="";
+  explanationAreaEl.classList.remove("bg-red-100", "border-wrong", "bg-yellow-100", "border-yellow-500", "text-center", "font-bold", "text-lg");
+  explanationAreaEl.classList.add("bg-blue-50", "border-primary");
+  nextButtonEl.disabled=true;
+  nextButtonEl.classList.add("opacity-50","cursor-not-allowed");
+  nextButtonEl.classList.remove("hover:bg-primary-dark");
+
+  quiz.options.forEach((opt,index)=>{
+    const btn=document.createElement("button");
+    btn.className="option-button w-full text-left p-4 border border-gray-300 rounded-xl cursor-pointer bg-white hover:bg-gray-50 text-gray-700 font-medium shadow-sm";
+    btn.textContent=`${index+1}. ${opt.text}`;
+    btn.dataset.isCorrect=opt.is_correct;
+    btn.addEventListener("click",()=>checkAnswer(btn,quiz));
+    optionsContainerEl.appendChild(btn);
+  });
+
+  // quiz 객체에 timer_sec이 없을 경우 기본값 15초 사용
+  startTimer(quiz.timer_sec || 15); 
+}
+
+function checkAnswer(btn,quiz){
+  if(btn.disabled) return; // 이미 선택되었으면 무시
+
+  clearInterval(timerInterval);
+  const correct=btn.dataset.isCorrect==="true";
+  quiz.selectedAnswer=btn.textContent.replace(/^\d+\.\s*/,"");
+
+  Array.from(optionsContainerEl.children).forEach(b=>{
+    b.disabled=true; b.classList.add("cursor-default"); b.classList.remove("hover:bg-gray-50");
+    if(b.dataset.isCorrect==="true"){ b.classList.add("bg-correct","text-white","border-correct","shadow-md"); b.classList.remove("bg-white","text-gray-700","border-gray-300"); }
+    else if(b===btn && !correct){ // 틀린 답을 선택했을 때
+      b.classList.add("bg-wrong","text-white","border-wrong","shadow-md");
+    }
+    else { b.classList.add("bg-gray-100","text-gray-400","border-gray-200"); b.classList.remove("bg-white","text-gray-700"); }
+  });
+
+  if(!correct){
+    if(!wrongQuizzes.some(q=>q.id===quiz.id)){
+      wrongQuizzes.push(quiz);
+      localStorage.setItem("wrongQuizzes",JSON.stringify(wrongQuizzes));
+    }
+  } else correctCount++;
+
+  explanationAreaEl.textContent=quiz.explanation;
+  explanationAreaEl.classList.remove("hidden");
+  nextButtonEl.disabled=false;
+  nextButtonEl.classList.remove("opacity-50","cursor-not-allowed");
+  nextButtonEl.classList.add("hover:bg-primary-dark");
+  updateWrongCount();
+}
+
+function updateWrongCount(){ wrongCountEl.textContent=`오답: ${wrongQuizzes.length}`; }
+
+nextButtonEl.addEventListener("click",()=>{
+  currentQuizIndex++;
+  if(currentQuizIndex<allQuizzes.length) showQuiz();
+  else{
+    // 최종 결과 화면
+    explanationAreaEl.textContent=`퀴즈 완료! 🎉 총 ${allQuizzes.length}문제 중 ${correctCount}문제를 맞혔습니다. 오답 ${wrongQuizzes.length}개.`;
+    explanationAreaEl.classList.remove("hidden");
+    explanationAreaEl.classList.add("bg-yellow-100","border-yellow-500","text-center","font-bold","text-lg");
+    nextButtonEl.classList.add("hidden");
+    newQuizSetBtnEl.classList.remove("hidden");
+    timerEl.textContent = "0";
+    timerEl.classList.remove("text-wrong");
+  }
+});
+
+newQuizSetBtnEl.addEventListener("click", async () => {
+    newQuizSetBtnEl.disabled = true;
+    newQuizSetBtnEl.classList.add("opacity-50","cursor-not-allowed");
+    newQuizSetBtnEl.textContent = "퀴즈 생성 중...";
+    try {
+        // 🌟 수정: 루트 상대 경로(/api/...)를 문서 상대 경로(api/...)로 변경하여 파싱 오류 해결
+        const res = await fetch("api/lawquizzes/new", { method: "POST" });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || `새 퀴즈 생성 실패 (Status: ${res.status})`);
+        }
+        
+        const newQuizzes = await res.json();
+        
+        // 새 세트로 교체
+        allQuizzes = newQuizzes;
+        currentQuizIndex = 0;
+        correctCount = 0;
+        showQuiz();
+        updateWrongCount();
+        nextButtonEl.classList.remove("hidden");
+        newQuizSetBtnEl.classList.add("hidden");
+
+    } catch (err) {
+        console.error(err);
+        alert(`새 퀴즈 세트 생성 중 오류 발생: ${err.message}`);
+    } finally {
+        newQuizSetBtnEl.disabled = false;
+        newQuizSetBtnEl.classList.remove("opacity-50","cursor-not-allowed");
+        newQuizSetBtnEl.textContent = "새 퀴즈 세트 생성";
+    }
+});
+
+reviewButtonEl.addEventListener("click",()=>{
+  reviewListEl.innerHTML="";
+  if(wrongQuizzes.length===0){ reviewListEl.innerHTML=`<p class="text-center text-gray-500 py-4">아직 틀린 문제가 없습니다.</p>`; showModal(); return; }
+  wrongQuizzes.forEach((q,i)=>{
+    const div=document.createElement("div");
+    div.className="review-item p-4 border border-gray-200 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer shadow-sm";
+    div.innerHTML=`<p class="text-sm font-light text-gray-500 mb-1">복습 #${i+1}</p>
+    <p class="font-bold text-gray-800 mb-2"><span class="text-primary">(${q.article.lawName})</span> ${q.question}</p>
+    <p class="text-sm"><span class="font-semibold text-wrong">내 선택:</span> ${q.selectedAnswer||"(선택 없음)"}</p>
+    <p class="text-sm"><span class="font-semibold text-correct">정답:</span> ${q.answer}</p>
+    <div class="mt-3 p-2 text-xs bg-blue-100 border-l-2 border-primary rounded text-gray-700">
+    <span class="font-bold">해설:</span> ${q.explanation}</div>`;
+    div.addEventListener("click",()=>{
+      // 복습 문제로 이동
+      const originalIndex = allQuizzes.findIndex(a => a.id === q.id);
+      if (originalIndex !== -1) {
+          currentQuizIndex = originalIndex;
+          showQuiz(); 
+          hideModal();
+      } else {
+          alert("해당 문제는 현재 퀴즈 세트에 없습니다. 새 세트 생성 후 다시 시도하세요.");
+      }
+    });
+    reviewListEl.appendChild(div);
+  });
+  showModal();
+});
+reviewCloseEl.addEventListener("click",()=>hideModal());
+reviewModalEl.addEventListener('click',e=>{ if(e.target===reviewModalEl) hideModal(); });
+
+function startTimer(sec){
+  timerEl.textContent=sec;
+  clearInterval(timerInterval);
+  timerInterval=setInterval(()=>{
+    sec--;
+    timerEl.textContent=sec;
+    
+    // 🌟 타이머 5초 미만일 때 색상 변경
+    if(sec<=5) timerEl.classList.add("text-wrong"); else timerEl.classList.remove("text-wrong");
+    
+    if(sec<0){
+      clearInterval(timerInterval);
+      const quiz=allQuizzes[currentQuizIndex];
+      // 이미 답변이 선택되지 않은 경우만 시간 초과 처리
+      const isAnswered = Array.from(optionsContainerEl.children).some(b => b.disabled);
+      
+      if(!isAnswered){
+        if(!wrongQuizzes.some(q=>q.id===quiz.id)){
+          wrongQuizzes.push(quiz);
+          localStorage.setItem("wrongQuizzes",JSON.stringify(wrongQuizzes));
+        }
+        
+        // 모든 버튼 비활성화 및 정답 표시
+        Array.from(optionsContainerEl.children).forEach(b=>{
+          b.disabled=true; b.classList.add("cursor-default"); b.classList.remove("hover:bg-gray-50");
+          if(b.dataset.isCorrect==="true"){ b.classList.add("bg-correct","text-white","border-correct","shadow-md"); b.classList.remove("bg-white","text-gray-700","border-gray-300"); }
+          else { b.classList.add("bg-gray-100","text-gray-400","border-gray-200"); b.classList.remove("bg-white","text-gray-700"); }
+        });
+        
+        quiz.selectedAnswer="(시간 초과)";
+        explanationAreaEl.textContent=`시간 초과! 정답 해설: ${quiz.explanation}`;
+        explanationAreaEl.classList.remove("hidden");
+        explanationAreaEl.classList.add("bg-red-100","border-wrong");
+        nextButtonEl.disabled=false; 
+        nextButtonEl.classList.remove("opacity-50","cursor-not-allowed"); 
+        nextButtonEl.classList.add("hover:bg-primary-dark");
+        updateWrongCount();
+      }
+      return;
+    }
+  },1000);
+}
+
+window.onload=()=>loadQuizzes();
+</script>
+</body>
+</html>
