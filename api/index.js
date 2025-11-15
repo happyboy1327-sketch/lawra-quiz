@@ -251,7 +251,7 @@ app.post("/api/lawquizzes/new", async (req, res) => {
 // 🌟 Vercel 배포를 위해 Express 앱을 모듈로 내보냅니다.
 export default app;
 
-const PORT = 5000; // 사용할 포트 번호
+//const PORT = 5000; // 사용할 포트 번호
 
 
 
@@ -263,7 +263,7 @@ const PORT = 5000; // 사용할 포트 번호
 // app.get('/', (req, res) => { res.send('Hello World'); });
 
 // 서버를 시작하고 특정 포트에서 요청을 수신합니다.
-app.listen(PORT, () => {
+//app.listen(PORT, () => {
     // 서버가 성공적으로 시작되면 콘솔에 메시지를 출력합니다.
-    console.log(`✅ 서버가 http://localhost:${PORT} 에서 실행 중입니다.`);
-})
+    //console.log(`✅ 서버가 http://localhost:${PORT} 에서 실행 중입니다.`);//
+
