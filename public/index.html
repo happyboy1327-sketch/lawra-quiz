@@ -75,7 +75,7 @@ function hideModal(){ reviewModalEl.classList.add('opacity-0','pointer-events-no
 async function loadQuizzes(){
   try{
     // 🌟 수정: 루트 상대 경로(/api/...)를 문서 상대 경로(api/...)로 변경하여 파싱 오류 해결
-    const res=await fetch("api/lawquizzes/latest");
+    const res=await fetch("/api/lawquizzes/latest");
     
     if(!res.ok){
       // 서버 오류 메시지 표시
@@ -188,7 +188,7 @@ newQuizSetBtnEl.addEventListener("click", async () => {
     newQuizSetBtnEl.textContent = "퀴즈 생성 중...";
     try {
         // 🌟 수정: 루트 상대 경로(/api/...)를 문서 상대 경로(api/...)로 변경하여 파싱 오류 해결
-        const res = await fetch("api/lawquizzes/new", { method: "POST" });
+        const res = await fetch("/api/lawquizzes/new", { method: "POST" });
         if (!res.ok) {
             const err = await res.json();
             throw new Error(err.error || `새 퀴즈 생성 실패 (Status: ${res.status})`);
