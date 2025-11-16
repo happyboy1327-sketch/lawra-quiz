@@ -1,4 +1,8 @@
-import express from 'express';
+console.log('=== 서버 시작 시 환경 변수 확인 ===');
+console.log('LAW_GOV_OC:', process.env.LAW_GOV_OC ? `존재 (${process.env.LAW_GOV_OC.substring(0, 5)}...)` : '없음');
+console.log('LAW_QUIZ_GEMINI_KEY:', process.env.LAW_QUIZ_GEMINI_KEY ? '존재' : '없음');
+console.log('FIREBASE_SERVICE_ACCOUNT_KEY:', process.env.FIREBASE_SERVICE_ACCOUNT_KEY ? '존재' : '없음');import express from 'express';
+
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI } from '@google/genai';
@@ -11,6 +15,7 @@ dotenv.config();
 const OC_USER_ID = process.env.LAW_GOV_OC;
 const MODEL = "gemini-2.5-flash";
 const client = new GoogleGenAI({ apiKey: process.env.LAW_QUIZ_GEMINI_KEY });
+
 
 console.log('client의 메서드들:', Object.getOwnPropertyNames(Object.getPrototypeOf(client)));
 console.log('client의 키들:', Object.keys(client));
@@ -66,13 +71,47 @@ const LAW_API_BASE_URL = "https://www.law.go.kr/DRF";
 
 // 법령 조문 랜덤 추출 함수
 async function fetchLawArticles(lawId) {
-  if (!OC_USER_ID) return [];
+  console.log('fetchLawArticles 호출, lawId:', lawId);
+  console.log('OC_USER_ID:', OC_USER_ID ? '존재' : '없음');
+  
+  if (!OC_USER_ID) {
+    console.error('LAW_GOV_OC 환경 변수가 없음!');
+    return [];
+  }
+  
   try {
     const params = { OC: OC_USER_ID, type: 'JSON', target: 'eflaw', ID: lawId };
+    console.log('API 호출 URL:', `${LAW_API_BASE_URL}/lawService.do`);
+    console.log('API 파라미터:', params);
+    
     const response = await axios.get(`${LAW_API_BASE_URL}/lawService.do`, { params });
+    
+    console.log('API 응답 상태:', response.status);
+    console.log('API 응답 데이터 구조:', Object.keys(response.data || {}));
+    
     const lawData = response.data;
+    
+    // ✅ 응답 구조 확인
+    if (!lawData) {
+      console.error('lawData가 undefined');
+      return [];
+    }
+    
+    if (!lawData['법령']) {
+      console.error('lawData["법령"]이 undefined. 전체 응답:', JSON.stringify(lawData, null, 2));
+      return [];
+    }
+    
+    if (!lawData['법령']['조문']) {
+      console.error('lawData["법령"]["조문"]이 undefined');
+      return [];
+    }
+    
     const joData = lawData['법령']['조문']['조문단위'] || [];
     const articles = Array.isArray(joData) ? joData : [joData].filter(j => j);
+    
+    console.log(`✅ ${articles.length}개 조문 추출 성공`);
+    
     return articles.map(jo => ({
       num: jo['조문번호'],
       content: jo['조문내용'],
@@ -80,6 +119,7 @@ async function fetchLawArticles(lawId) {
     }));
   } catch (err) {
     console.error(`fetchLawArticles 오류 (ID: ${lawId}):`, err.message);
+    console.error('전체 에러:', err);
     return [];
   }
 }
