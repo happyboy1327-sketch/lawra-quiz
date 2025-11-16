@@ -191,40 +191,69 @@ app.post("/api/lawquizzes/new", async (req, res) => {
     const MAX_RETRIES = 3;
     const newQuizzes = [];
 
+    console.log('=== 새 퀴즈 생성 시작 ===');
+
     for (let i = 0; i < 5; i++) {
       let quizAttempt = null;
       const law = VALID_LAW_IDS[Math.floor(Math.random() * VALID_LAW_IDS.length)];
+      
+      console.log(`문제 ${i + 1} 생성 시작, 법령:`, law.lawName);
 
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         const article = await fetchRandomArticle(law);
-        if (!article) continue;
+        if (!article) {
+          console.warn(`문제 ${i + 1}, 시도 ${attempt + 1}: article 없음`);
+          continue;
+        }
 
-        // 긴 조문 정리
-        const cleanContent = article.content.replace(/\s+/g, ' ').trim();
+        const contentStr = String(article.content || '');
+        const cleanContent = contentStr.replace(/\s+/g, ' ').trim();
 
-        // generateQuiz 호출
         const rawQuiz = await generateQuiz({ ...article, content: cleanContent });
+
+        console.log(`문제 ${i + 1}, 시도 ${attempt + 1}, rawQuiz:`, rawQuiz ? '성공' : '실패');
 
         if (!rawQuiz) {
           console.warn(`문제 ${i + 1}, 시도 ${attempt + 1} 실패, 다음 시도`);
-          continue; // 재시도
+          continue;
         }
 
-        quizAttempt = { ...rawQuiz, id: `${Date.now()}-${i}-${Math.floor(Math.random()*1000)}` };
-        break; // 성공하면 재시도 종료
+        // ✅ ID는 Gemini가 생성한 것 사용
+        quizAttempt = rawQuiz;
+        console.log(`문제 ${i + 1} 생성 완료:`, quizAttempt.id);
+        break;
       }
 
-      if (quizAttempt) newQuizzes.push(quizAttempt);
-      else console.warn(`문제 ${i + 1} 생성 실패, 다음 문제로 넘어감`);
+      if (quizAttempt) {
+        newQuizzes.push(quizAttempt);
+        console.log(`✅ 문제 ${i + 1} 추가됨`);
+      } else {
+        console.warn(`❌ 문제 ${i + 1} 생성 실패, 다음 문제로 넘어감`);
+      }
     }
 
-    // Firestore에 저장
-    await db.collection("law_quizzes").add({
+    console.log('=== 퀴즈 생성 완료 ===');
+    console.log('생성된 퀴즈 개수:', newQuizzes.length);
+
+    if (newQuizzes.length === 0) {
+      return res.status(400).json({ 
+        error: '퀴즈 생성 실패', 
+        message: '모든 퀴즈 생성 시도가 실패했습니다.' 
+      });
+    }
+
+    // ✅ 퀴즈 세트 ID 생성
+    const quizSetId = `${Date.now()}`;
+
+    // ✅ Firestore 문서 ID를 퀴즈 세트 ID로 지정
+    await db.collection("law_quizzes").doc(quizSetId).set({
       createdAt: Date.now(),
       quizzes: newQuizzes
     });
+    console.log('Firestore 저장 완료, 문서 ID:', quizSetId);
 
     res.json(newQuizzes);
+
   } catch (e) {
     console.error("퀴즈 생성/저장 오류:", e);
     res.status(500).json({ error: e.message });
