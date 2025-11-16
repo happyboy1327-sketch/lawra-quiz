@@ -198,29 +198,17 @@ newQuizSetBtnEl.addEventListener("click", async () => {
     newQuizSetBtnEl.disabled = true;
     newQuizSetBtnEl.classList.add("opacity-50","cursor-not-allowed");
     newQuizSetBtnEl.textContent = "퀴즈 생성 중...";
+    
     try {
         const res = await fetch("/api/lawquizzes/new", { method: "POST" });
+        
         if (!res.ok) {
             const err = await res.json();
-            throw new Error(err.error || `새 퀴즈 생성 실패 (Status: ${res.status})`);
+            throw new Error(err.message || err.error || `새 퀴즈 생성 실패 (Status: ${res.status})`);
         }
         
-        const newQuizzes = await res.json();
-        
-        // ✅ 디버깅 추가
-        console.log('새 퀴즈 받음:', newQuizzes);
-        console.log('퀴즈 개수:', newQuizzes.length);
-        
-        // 새 세트로 교체
-        allQuizzes = newQuizzes;
-        currentQuizIndex = 0;
-        correctCount = 0;
-        
-        console.log('showQuiz 호출 전 allQuizzes:', allQuizzes);
-        
-        showQuiz();
-        updateWrongCount();
-        nextButtonEl.classList.remove("hidden");
+        // ✅ Firestore에서 최신 퀴즈 로드
+        await loadQuizzes();
         newQuizSetBtnEl.classList.add("hidden");
 
     } catch (err) {
