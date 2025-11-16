@@ -105,12 +105,25 @@ async function loadQuizzes(){
 
 function showQuiz(){
   clearInterval(timerInterval);
-  timerEl.classList.remove("text-wrong"); // 타이머 색상 초기화
+  timerEl.classList.remove("text-wrong");
+  
   const quiz=allQuizzes[currentQuizIndex];
-  if(!quiz){ console.warn("퀴즈 없음"); return; }
+  
+  // ✅ 디버깅 추가
+  console.log('showQuiz 호출');
+  console.log('currentQuizIndex:', currentQuizIndex);
+  console.log('allQuizzes:', allQuizzes);
+  console.log('quiz:', quiz);
+  
+  if(!quiz){ 
+    console.warn("퀴즈 없음"); 
+    questionTextEl.innerHTML = "퀴즈 데이터가 없습니다.";
+    return; 
+  }
 
   questionTextEl.innerHTML=`<span class="text-sm font-light text-gray-500 mr-2">[${currentQuizIndex+1}/${allQuizzes.length}]</span>
     <span class="text-primary font-bold mr-2">(${quiz.category})</span>${quiz.question}`;
+  
 
   optionsContainerEl.innerHTML="";
   explanationAreaEl.classList.add("hidden"); explanationAreaEl.textContent="";
@@ -194,10 +207,17 @@ newQuizSetBtnEl.addEventListener("click", async () => {
         
         const newQuizzes = await res.json();
         
+        // ✅ 디버깅 추가
+        console.log('새 퀴즈 받음:', newQuizzes);
+        console.log('퀴즈 개수:', newQuizzes.length);
+        
         // 새 세트로 교체
         allQuizzes = newQuizzes;
         currentQuizIndex = 0;
         correctCount = 0;
+        
+        console.log('showQuiz 호출 전 allQuizzes:', allQuizzes);
+        
         showQuiz();
         updateWrongCount();
         nextButtonEl.classList.remove("hidden");
