@@ -1,12 +1,14 @@
 {
   "version": 2,
-  "builds": [
-    { "src": "index.mjs", "use": "@vercel/node" }, 
-    { "src": "index.html", "use": "@vercel/static" }
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.mjs"
+    }
   ],
-  "routes": [
-    { "src": "/api/quizzes", "dest": "index.mjs" }, 
-    { "src": "/", "dest": "index.html" },
-    { "src": "/(.*)", "dest": "index.html" }
-  ]
+  "functions": {
+    "api/index.mjs": {
+      "maxDuration": 75
+    }
+  }
 }
