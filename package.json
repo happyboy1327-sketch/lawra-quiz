@@ -5,6 +5,7 @@
   "main": "index.mjs",
   "type": "module",
   "scripts": {
+    "postinstall": "node quiz_generator.js",
     "start": "node api/index.mjs",
     "dev": "node api/index.mjs"
   },
