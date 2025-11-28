@@ -73,51 +73,58 @@ function updateQuizUI(){if(currentQuizIndex>=allQuizzes.length){showResults();re
 function checkAnswer(selectedBtn,quiz){if(isAnswered)return;isAnswered=true;clearInterval(timerInterval);const isTimeUp=!selectedBtn;const isCorrect=isTimeUp?false:selectedBtn.dataset.isCorrect==='true';quiz.is_correct_answered=isCorrect;quiz.user_answer_text=isTimeUp?"⏰ 시간 초과":selectedBtn.textContent;localStorage.setItem(STORAGE_KEY_QUIZZES,JSON.stringify(allQuizzes));const feedbackEl=document.getElementById('feedback-message');if(isCorrect){correctCount++;feedbackEl.textContent="✅ 정답입니다!";feedbackEl.className='feedback-correct'}else{feedbackEl.textContent=isTimeUp?"⏰ 시간 초과!":"❌ 오답입니다.";feedbackEl.className='feedback-incorrect';if(selectedBtn)selectedBtn.classList.add('incorrect')}document.querySelectorAll('.option-button').forEach(btn=>{btn.disabled=true;if(btn.dataset.isCorrect==='true')btn.classList.add('correct')});document.getElementById('explanation-content').textContent=quiz.explanation;document.getElementById('explanation-area').style.display='block';const nextBtn=document.getElementById('next-button');nextBtn.textContent=(currentQuizIndex<allQuizzes.length-1)?"다음 문제":"결과 보기";nextBtn.style.display='block';nextBtn.onclick=()=>{currentQuizIndex++;updateQuizUI()}}
 function startTimer(seconds){let left=seconds;document.getElementById('timer').textContent=`${left}s`;if(timerInterval)clearInterval(timerInterval);timerInterval=setInterval(()=>{left--;document.getElementById('timer').textContent=`${left}s`;if(left<=0){clearInterval(timerInterval);if(!isAnswered)checkAnswer(null,allQuizzes[currentQuizIndex])}},1000)}
 function showResults(){document.getElementById('quiz-screen').classList.remove('active');document.getElementById('result-screen').classList.add('active');document.getElementById('final-correct-count').textContent=correctCount;document.getElementById('final-total-count').textContent=allQuizzes.length;document.getElementById('final-score').textContent=Math.round((correctCount/allQuizzes.length)*100)}
+function handleEnterReviewMode(){document.querySelectorAll('.screen-container').forEach(el=>el.classList.remove('active'));document.getElementById('review-screen').classList.add('active');const reviewListEl=document.getElementById('review-list');reviewListEl.innerHTML='';const storedQuizzes=localStorage.getItem(STORAGE_KEY_QUIZZES);if(!storedQuizzes){reviewListEl.innerHTML='<p>오답 노트가 비어 있습니다.</p>';return}const quizzes=JSON.parse(storedQuizzes);const incorrectQuizzes=quizzes.filter(q=>!q.is_correct_answered);if(incorrectQuizzes.length===0){reviewListEl.innerHTML='<p>모든 문제를 맞추셨습니다! 오답 노트가 비어 있습니다.</p>';return}incorrectQuizzes.forEach((quiz,idx)=>{const itemEl=document.createElement('div');itemEl.className='review-item';itemEl.innerHTML=`<h3>문제 ${idx+1}:</h3><p><strong>질문:</strong> ${quiz.question}</p><p><strong>당신의 답변:</strong> ${quiz.user_answer_text}</p><p><strong>정답:</strong> ${quiz.options.find(opt=>opt.is_correct).text}</p><p><strong>해설:</strong> ${quiz.explanation}</p>`;reviewListEl.appendChild(itemEl)})}
+document.getElementById('reviewForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
 
+  const quizzes = document.getElementById('quizzes').value;
+  const reviewKey = `review_${Date.now()}`; // 고유 키 생성
 
-function handleEnterReviewMode() {
-  // 저장된 퀴즈 불러오기
-  const stored = JSON.parse(localStorage.getItem(STORAGE_KEY_QUIZZES)) || [];
-  allQuizzes = stored;
+  // 1. 로컬스토리지에 임시 저장 (상태: pending)
+  localStorage.setItem(reviewKey, JSON.stringify({
+    quizzes,
+    status: 'pending',
+    timestamp: Date.now()
+  }));
 
-  // 화면 전환
-  document.querySelectorAll('.screen-container').forEach(el => el.classList.remove('active'));
-  document.getElementById('review-screen').classList.add('active');
+  try {
+    // 2. 서버에 POST 요청
+    const response = await fetch('/api/save-review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quizzes, reviewKey })
+    });
 
-  const list = document.getElementById('review-list');
-  list.innerHTML = '';
+    const data = await response.json();
 
-  // 오답 필터링
-  const wrongs = allQuizzes.filter(q =>!q.is_correct_answered);
-
-  if (wrongs.length === 0) {
-    list.innerHTML = "<div>틀린 문제가 없습니다!</div>";
-    return;
+    if (data.success) {
+      // 3. 서버 저장 성공 시 로컬 데이터 상태 업데이트
+      localStorage.setItem(reviewKey, JSON.stringify({
+        quizzes,
+        status: 'success',
+        serverTimestamp: data.timestamp
+      }));
+      alert('서버에 저장되었습니다!');
+    } else {
+      // 4. 서버 저장 실패 시 로컬 데이터 상태 업데이트
+      localStorage.setItem(reviewKey, JSON.stringify({
+        quizzes,
+        status: 'failed',
+        error: data.error,
+        timestamp: Date.now()
+      }));
+      alert(`저장 실패: ${data.error}`);
+    }
+  } catch (err) {
+    // 5. 네트워크 오류 등 예외 처리
+    localStorage.setItem(reviewKey, JSON.stringify({
+      quizzes,
+      status: 'network_error',
+      error: err.message,
+      timestamp: Date.now()
+    }));
+    alert(`네트워크 오류 발생: ${err.message}`);
   }
-
-  wrongs.forEach((q, idx) => {
-    const correctOption = q.options.find(o => o.is_correct);
-    const correctText = correctOption? correctOption.text : "-";
-    const userAnswer = q.user_answer_text || "-";
-    const explanation = q.explanation || "해설 없음";
-
-    const div = document.createElement('div');
-    div.className = 'review-item';
-    div.innerHTML = `
-      <h3>${idx + 1}. ${q.question}</h3>
-      <p style="color:red">내 답: ${userAnswer}</p>
-      <p style="color:blue">정답: ${correctText}</p>
-      <p>해설: ${explanation}</p>
-    `;
-    list.appendChild(div);
-  });
-}
-
-// 오답 노트 저장 기능 추가
-function saveReviewState() {
-  localStorage.setItem(STORAGE_KEY_QUIZZES, JSON.stringify(allQuizzes));
-}
-
+});
 </script>
-</body>
-</html>
+

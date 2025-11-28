@@ -180,7 +180,11 @@ async function generateQuiz(article) {
 
 위 형식으로 실제 퀴즈를 JSON으로만 출력하세요.
 `;
-     const response = await client.models.generateContent({
+
+    console.log('=== 디버깅 ===');
+    console.log('API 키:', process.env.LAW_QUIZ_GEMINI_KEY ? '존재' : '없음');
+    
+    const response = await client.models.generateContent({
       model: MODEL,
       contents: prompt
     });
@@ -278,6 +282,31 @@ app.post("/api/lawquizzes/new", async (req, res) => {
         message: '모든 퀴즈 생성 시도가 실패했습니다.' 
       });
     }
+
+app.post('/api/save-review', async (req, res) => {
+  try {
+    const { quizzes, reviewKey } = req.body;
+
+    // 서버 데이터베이스에 저장
+    const result = await db.collection('reviews').insertOne({
+      key: reviewKey,
+      content: quizzes,
+      status: 'pending'
+    });
+
+    // 서버 작업 완료 후 상태 업데이트
+    await db.collection('reviews').updateOne(
+      { _id: result.insertedId },
+      { $set: { status: 'completed' } }
+    );
+
+    res.json({ success: true, timestamp: Date.now() });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
 
     // ✅ 퀴즈 세트 ID 생성
     const quizSetId = `${Date.now()}`;
