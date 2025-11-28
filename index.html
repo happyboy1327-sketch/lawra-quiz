@@ -73,22 +73,22 @@ function updateQuizUI(){if(currentQuizIndex>=allQuizzes.length){showResults();re
 function checkAnswer(selectedBtn,quiz){if(isAnswered)return;isAnswered=true;clearInterval(timerInterval);const isTimeUp=!selectedBtn;const isCorrect=isTimeUp?false:selectedBtn.dataset.isCorrect==='true';quiz.is_correct_answered=isCorrect;quiz.user_answer_text=isTimeUp?"⏰ 시간 초과":selectedBtn.textContent;localStorage.setItem(STORAGE_KEY_QUIZZES,JSON.stringify(allQuizzes));const feedbackEl=document.getElementById('feedback-message');if(isCorrect){correctCount++;feedbackEl.textContent="✅ 정답입니다!";feedbackEl.className='feedback-correct'}else{feedbackEl.textContent=isTimeUp?"⏰ 시간 초과!":"❌ 오답입니다.";feedbackEl.className='feedback-incorrect';if(selectedBtn)selectedBtn.classList.add('incorrect')}document.querySelectorAll('.option-button').forEach(btn=>{btn.disabled=true;if(btn.dataset.isCorrect==='true')btn.classList.add('correct')});document.getElementById('explanation-content').textContent=quiz.explanation;document.getElementById('explanation-area').style.display='block';const nextBtn=document.getElementById('next-button');nextBtn.textContent=(currentQuizIndex<allQuizzes.length-1)?"다음 문제":"결과 보기";nextBtn.style.display='block';nextBtn.onclick=()=>{currentQuizIndex++;updateQuizUI()}}
 function startTimer(seconds){let left=seconds;document.getElementById('timer').textContent=`${left}s`;if(timerInterval)clearInterval(timerInterval);timerInterval=setInterval(()=>{left--;document.getElementById('timer').textContent=`${left}s`;if(left<=0){clearInterval(timerInterval);if(!isAnswered)checkAnswer(null,allQuizzes[currentQuizIndex])}},1000)}
 function showResults(){document.getElementById('quiz-screen').classList.remove('active');document.getElementById('result-screen').classList.add('active');document.getElementById('final-correct-count').textContent=correctCount;document.getElementById('final-total-count').textContent=allQuizzes.length;document.getElementById('final-score').textContent=Math.round((correctCount/allQuizzes.length)*100)}
-function handleEnterReviewMode() {
-  const stored = JSON.parse(localStorage.getItem(STORAGE_KEY_QUIZZES));
-  if (!stored || stored.length === 0) {
-    alert("저장된 기록이 없습니다.");
-    return;
-  }
 
+
+function handleEnterReviewMode() {
+  // 저장된 퀴즈 불러오기
+  const stored = JSON.parse(localStorage.getItem(STORAGE_KEY_QUIZZES)) || [];
   allQuizzes = stored;
 
+  // 화면 전환
   document.querySelectorAll('.screen-container').forEach(el => el.classList.remove('active'));
   document.getElementById('review-screen').classList.add('active');
 
   const list = document.getElementById('review-list');
   list.innerHTML = '';
 
-  const wrongs = allQuizzes.filter(q => q.is_correct_answered === false);
+  // 오답 필터링
+  const wrongs = allQuizzes.filter(q =>!q.is_correct_answered);
 
   if (wrongs.length === 0) {
     list.innerHTML = "<div>틀린 문제가 없습니다!</div>";
@@ -97,19 +97,27 @@ function handleEnterReviewMode() {
 
   wrongs.forEach((q, idx) => {
     const correctOption = q.options.find(o => o.is_correct);
-    const correctText = correctOption ? correctOption.text : "-";
+    const correctText = correctOption? correctOption.text : "-";
+    const userAnswer = q.user_answer_text || "-";
+    const explanation = q.explanation || "해설 없음";
 
     const div = document.createElement('div');
     div.className = 'review-item';
     div.innerHTML = `
       <h3>${idx + 1}. ${q.question}</h3>
-      <p style='color:red'>내 답: ${q.user_answer_text || '-'}</p>
-      <p style='color:blue'>정답: ${correctText}</p>
-      <p>해설: ${q.explanation}</p>
+      <p style="color:red">내 답: ${userAnswer}</p>
+      <p style="color:blue">정답: ${correctText}</p>
+      <p>해설: ${explanation}</p>
     `;
     list.appendChild(div);
   });
 }
+
+// 오답 노트 저장 기능 추가
+function saveReviewState() {
+  localStorage.setItem(STORAGE_KEY_QUIZZES, JSON.stringify(allQuizzes));
+}
+
 </script>
 </body>
 </html>

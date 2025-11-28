@@ -155,11 +155,12 @@ async function generateQuiz(article) {
 조문번호: 제${article.num}조
 조문내용: ${cleanContent}
 
-위 조문의 내용을 바탕으로 실제 법률 지식을 테스트할 수 있는 퀴즈를 작성하세요. 조항의 내용을 묻는 문제나 조항의 개정일, 삭제 여부를 묻는 문제는 절대로 출제하지 마세요.
-사례를 제시하여 현행 법령을 기준으로 판단하는 문제나 생활 법률 상식 문제를 출제하세요. 인물의 가명은 A씨, B씨, 김 씨, 박 씨 등으로 표기하세요.
-**난이도는 평이해야 하며, 문제의 질문은 80자 이내로 제한합니다.** 정답 1개와 그럴듯한 오답 3개를 만드세요. 실제 퀴즈 내용을 JSON 형식으로 작성하세요.
+1. 위 조문의 내용을 바탕으로 실제 법률 지식 퀴즈를 작성할 것.
+2. 조항의 내용을 묻는 문제나 조항의 개정일, 삭제 여부를 묻는 문제는 절대로 출제 금지.
+3. 사례를 제시하여 현행 법령을 기준으로 판단 및 해석하는 문제나 생활 법률 상식 문제를 출제해라. 인물의 가명은 A씨, B씨, 김 씨, 박 씨 등으로 표기해라.
+4. **난이도는 평이해야 하며, 문제의 질문은 85자 이내로 제한한다.** 정답 1개와 오답 3개를 만들어야 하고, 실제 퀴즈 내용을 JSON 형식으로.
 
-**중요: 반드시 순수 JSON만 출력하세요. 마크다운 코드블록이나 설명 없이 JSON만 출력하세요.**
+**중요: 반드시 순수 JSON만 출력해라. 마크다운 코드블록이나 설명 없이 JSON만 출력해라.**
 
 출력 형식:
 {
@@ -179,11 +180,7 @@ async function generateQuiz(article) {
 
 위 형식으로 실제 퀴즈를 JSON으로만 출력하세요.
 `;
-
-    console.log('=== 디버깅 ===');
-    console.log('API 키:', process.env.LAW_QUIZ_GEMINI_KEY ? '존재' : '없음');
-    
-    const response = await client.models.generateContent({
+     const response = await client.models.generateContent({
       model: MODEL,
       contents: prompt
     });
@@ -267,7 +264,6 @@ app.post("/api/lawquizzes/new", async (req, res) => {
 
       if (quizAttempt) {
         newQuizzes.push(quizAttempt);
-        console.log(`✅ 문제 ${i + 1} 추가됨`);
       } else {
         console.warn(`❌ 문제 ${i + 1} 생성 실패, 다음 문제로 넘어감`);
       }
